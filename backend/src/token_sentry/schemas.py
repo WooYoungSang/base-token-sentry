@@ -51,6 +51,8 @@ class SafetyScoreSchema(BaseModel):
     score: int = Field(ge=0, le=100)
     grade: str
     penalties: list[str]
+    scoring_method: str = "rule_based"
+    ml_confidence: Optional[float] = None
     disclaimer: str = DISCLAIMER
 
 
@@ -59,6 +61,8 @@ class TokenDetailSchema(BaseModel):
     score: int = Field(ge=0, le=100)
     grade: str
     penalties: list[str]
+    scoring_method: str = "rule_based"
+    ml_confidence: Optional[float] = None
     contract: Optional[ContractAnalysisSchema] = None
     holder: Optional[HolderAnalysisSchema] = None
     liquidity: Optional[LiquidityAnalysisSchema] = None

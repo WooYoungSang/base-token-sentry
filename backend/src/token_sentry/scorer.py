@@ -1,6 +1,10 @@
 """Safety scorer - combines all signals into a 0-100 safety score."""
 
+import logging
+
 from .models import ContractAnalysis, HolderAnalysis, HoneypotResult, LiquidityAnalysis, SafetyScore
+
+logger = logging.getLogger(__name__)
 
 # Penalty weights
 PENALTY_CONTRACT_FLAG = 20      # per critical contract flag
@@ -13,6 +17,17 @@ BASE_SCORE = 100
 
 
 class SafetyScorer:
+    def __init__(self) -> None:
+        self._ml_scorer = None
+        try:
+            from .ml.ml_scorer import MLScorer
+            scorer = MLScorer()
+            if scorer.available:
+                self._ml_scorer = scorer
+                logger.info("ML scorer loaded successfully")
+        except Exception:
+            logger.debug("ML scorer not available, using rule-based only")
+
     def score(
         self,
         address: str,
@@ -51,6 +66,23 @@ class SafetyScorer:
 
         score = max(0, min(100, score))
 
+        # Try ML prediction
+        scoring_method = "rule_based"
+        ml_confidence: float | None = None
+
+        if self._ml_scorer is not None:
+            try:
+                ml_score, ml_grade, confidence = self._ml_scorer.predict_from_analyses(
+                    contract, holder, liquidity, honeypot,
+                )
+                if 0 <= ml_score <= 100:
+                    score = int(round(ml_score))
+                    scoring_method = "ml"
+                    ml_confidence = round(confidence, 3)
+                    logger.debug("ML score=%.1f grade=%s conf=%.3f", ml_score, ml_grade, confidence)
+            except Exception:
+                logger.debug("ML prediction failed, using rule-based fallback")
+
         result = SafetyScore(
             address=address,
             score=score,
@@ -59,6 +91,8 @@ class SafetyScorer:
             holder=holder,
             liquidity=liquidity,
             honeypot=honeypot,
+            scoring_method=scoring_method,
+            ml_confidence=ml_confidence,
         )
         result.grade = result._compute_grade()
         return result

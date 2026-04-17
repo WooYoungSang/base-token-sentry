@@ -71,6 +71,8 @@ class SafetyScore:
     holder: Optional[HolderAnalysis] = None
     liquidity: Optional[LiquidityAnalysis] = None
     honeypot: Optional[HoneypotResult] = None
+    scoring_method: str = "rule_based"
+    ml_confidence: Optional[float] = None
 
     def _compute_grade(self) -> str:
         if self.score >= 80:
