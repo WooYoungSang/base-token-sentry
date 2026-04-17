@@ -97,3 +97,11 @@ function AnalyzeContent() {
     </div>
   );
 }
+
+export default function AnalyzePage() {
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-2xl px-4 py-12 text-gray-500">Loading...</div>}>
+      <AnalyzeContent />
+    </Suspense>
+  );
+}

@@ -5,25 +5,44 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: forrich-r2-sentry-api
+    restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8103:8000"
     environment:
       - PYTHONUNBUFFERED=1
       - BASE_RPC_URL=https://mainnet.base.org
     volumes:
       - sentry_data:/app/data
-    command: uvicorn token_sentry.api:app --host 0.0.0.0 --port 8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    container_name: forrich-r2-sentry-ui
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3103:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://backend:8000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   sentry_data:
