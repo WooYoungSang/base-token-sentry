@@ -92,6 +92,8 @@ class AnalyzeResponse(BaseModel):
     score: int
     grade: str
     is_honeypot: bool
+    scoring_method: str = "rule_based"
+    ml_confidence: Optional[float] = None
     disclaimer: str = DISCLAIMER
 
 

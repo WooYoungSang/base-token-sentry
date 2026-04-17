@@ -65,6 +65,7 @@ class SafetyScorer:
             penalties.append(f"lp_not_locked (-{PENALTY_UNLOCKED_LP})")
 
         score = max(0, min(100, score))
+        rule_based_score = score
 
         # Try ML prediction
         scoring_method = "rule_based"
@@ -75,13 +76,37 @@ class SafetyScorer:
                 ml_score, ml_grade, confidence = self._ml_scorer.predict_from_analyses(
                     contract, holder, liquidity, honeypot,
                 )
-                if 0 <= ml_score <= 100:
-                    score = int(round(ml_score))
+                if confidence < 0.3:
+                    logger.info(
+                        "ML confidence too low (%.3f), falling back to rule-based scoring",
+                        confidence,
+                    )
+                elif 0 <= ml_score <= 100:
+                    ml_rounded = int(round(ml_score))
+                    # Guard against ML drifting too far from rule-based:
+                    # if scores disagree by more than 20 points, blend them
+                    diff = abs(ml_rounded - rule_based_score)
+                    if diff > 20:
+                        score = int(round(0.4 * ml_rounded + 0.6 * rule_based_score))
+                        logger.info(
+                            "ML/rule-based divergence (%d vs %d), blending to %d",
+                            ml_rounded, rule_based_score, score,
+                        )
+                    else:
+                        score = ml_rounded
                     scoring_method = "ml"
                     ml_confidence = round(confidence, 3)
                     logger.debug("ML score=%.1f grade=%s conf=%.3f", ml_score, ml_grade, confidence)
             except Exception:
                 logger.debug("ML prediction failed, using rule-based fallback")
+
+        # Honeypot safety guard: honeypot tokens should NEVER score above C grade.
+        # Use the lower of ML score, rule-based score, and the 45 cap.
+        if honeypot.is_honeypot:
+            capped = min(score, 45, rule_based_score)
+            if capped != score:
+                logger.info("Honeypot safety guard: clamping score from %d to %d", score, capped)
+            score = capped
 
         result = SafetyScore(
             address=address,

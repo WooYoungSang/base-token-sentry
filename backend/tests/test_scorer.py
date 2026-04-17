@@ -90,3 +90,12 @@ class TestSafetyScorer:
         honeypot = HoneypotResult(address=ADDR, is_honeypot=True, sell_tax=0.95)
         result = self.scorer.score(ADDR, contract, holder, liquidity, honeypot)
         assert len(result.penalties) > 0
+
+    def test_honeypot_safety_guard_caps_at_45(self):
+        """Honeypot tokens should NEVER score above 45 regardless of ML prediction."""
+        contract, holder, liquidity, _ = self._safe_inputs()
+        # Even with otherwise clean signals, honeypot flag must cap the score
+        honeypot = HoneypotResult(address=ADDR, is_honeypot=True, sell_tax=0.5)
+        result = self.scorer.score(ADDR, contract, holder, liquidity, honeypot)
+        assert result.score <= 45, f"Honeypot scored {result.score}, expected <= 45"
+        assert result.grade in ("C", "D", "F")

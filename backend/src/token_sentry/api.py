@@ -224,6 +224,8 @@ async def analyze_token(address: str, background_tasks: BackgroundTasks):
             score=score.score,
             grade=score.grade,
             is_honeypot=score.honeypot.is_honeypot if score.honeypot else False,
+            scoring_method=getattr(score, "scoring_method", "rule_based"),
+            ml_confidence=getattr(score, "ml_confidence", None),
         )
     except Exception as e:
         logger.error(f"Analysis failed for {address}: {e}")

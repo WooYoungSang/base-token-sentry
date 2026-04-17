@@ -48,8 +48,11 @@ def train_model(
         X, y, test_size=0.2, random_state=seed,
     )
 
+    # Scale estimators with dataset size to avoid slow training on small sets
+    n_estimators = 200 if n_samples >= 1000 else 100
+
     model = xgb.XGBRegressor(
-        n_estimators=200,
+        n_estimators=n_estimators,
         max_depth=6,
         learning_rate=0.1,
         min_child_weight=3,
@@ -87,9 +90,22 @@ def train_model(
     return metrics
 
 
-if __name__ == "__main__":
+def train_and_save() -> dict:
+    """Train model with default settings and save to default path.
+
+    Convenience wrapper for use from CLI or scripts.
+    """
     logging.basicConfig(level=logging.INFO)
     results = train_model()
+    logger.info(
+        "Model saved: MAE=%.2f, R2=%.3f, Grade Acc=%.2f%%",
+        results["mae"], results["r2"], results["per_grade_accuracy"] * 100,
+    )
+    return results
+
+
+if __name__ == "__main__":
+    results = train_and_save()
     print(f"MAE: {results['mae']:.2f}")
     print(f"R2: {results['r2']:.3f}")
     print(f"Grade Accuracy: {results['per_grade_accuracy']:.2%}")
