@@ -3,9 +3,14 @@
 > **Base Token Sentry** detects honeypots, rug-pull patterns, and dangerous contract flags in ERC-20 tokens on Base — giving users an instant safety score before they trade or invest.
 
 [![Built on Base](https://img.shields.io/badge/Built%20on-Base-0052FF?logo=coinbase)](https://base.org)
+[![Live Demo](https://img.shields.io/badge/Live-token--sentry.warvis.org-brightgreen)](https://token-sentry.warvis.org)
+[![Tests](https://img.shields.io/badge/Tests-95%20passing-brightgreen)](https://github.com/WooYoungSang/base-token-sentry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://python.org)
 [![Next.js](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org)
+
+**Live Demo:** https://token-sentry.warvis.org  
+**API:** https://api-token-sentry.warvis.org/docs
 
 ---
 
@@ -17,7 +22,7 @@ New tokens launch on Base every hour. Many are honeypots, rug-pulls, or have hid
 
 ## Solution
 
-**Base Token Sentry** analyzes any ERC-20 token contract on Base in seconds, detecting dangerous patterns and assigning an overall safety score with detailed flags.
+**Base Token Sentry** analyzes any ERC-20 token contract on Base in seconds, combining on-chain contract analysis with an XGBoost ML model trained on real Base token data — assigning a 0–100 safety score with detailed risk flags.
 
 ---
 
@@ -29,8 +34,25 @@ New tokens launch on Base every hour. Many are honeypots, rug-pulls, or have hid
 | **F2 — Honeypot Detector** | Simulates buy/sell transactions to detect transfer restrictions |
 | **F3 — Liquidity Checker** | Verifies liquidity pool existence, depth, and lock status |
 | **F4 — Holder Analyzer** | Checks token concentration (top holders, dev wallet %) |
-| **F5 — Safety Scorer** | Weighted scoring (0–100) → SAFE / CAUTION / DANGER / SCAM |
+| **F5 — AI Safety Scorer** | XGBoost ML model (86.5% grade accuracy) + rule-based fallback with honeypot safety guard |
 | **F6 — Token Watcher** | Monitor newly deployed tokens for immediate screening |
+
+---
+
+## ML Model Performance
+
+| Metric | Value |
+|--------|-------|
+| Grade Accuracy | **86.5%** |
+| R² Score | **0.924** |
+| MAE | 5.90 points |
+| Training data | 28 real Base tokens (GoPlusLabs) + 1,972 synthetic |
+| Data source | GoPlusLabs API (Base chain 8453), Basescan |
+
+**Safety guards built into the scorer:**
+- Honeypot tokens are **always capped at score 45** regardless of ML prediction
+- ML confidence < 0.30 → falls back to rule-based scoring
+- Large ML/rule divergence (>20 pts) → 40/60 confidence blend
 
 ---
 
@@ -39,52 +61,38 @@ New tokens launch on Base every hour. Many are honeypots, rug-pulls, or have hid
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                  Next.js 14 Frontend                     │
-│  / (search) · /tokens · /tokens/[addr] · /analyze       │
-│  /watch (new token feed)                                │
+│  / (search) · /tokens · /tokens/[addr] · /watch         │
 └──────────────────────┬──────────────────────────────────┘
                        │ REST (NEXT_PUBLIC_API_URL)
 ┌──────────────────────▼──────────────────────────────────┐
 │                  FastAPI Backend                         │
-│  POST /analyze · GET /tokens · GET /tokens/{addr}       │
-│  GET /watch · GET /health                               │
+│  POST /analyze/{addr} · GET /tokens · GET /tokens/{addr}│
+│  GET /watch/recent · GET /health                        │
 └──┬──────────────┬─────────────┬────────────┬────────────┘
    │              │             │            │
-   ▼              ▼             ▼            ▼
 Contract      Honeypot      Liquidity    Holder
 Analyzer      Detector      Checker      Analyzer
-   │              │             │            │
-   └──────────────┴─────────────┴────────────┘
-                        │
-                   Safety Scorer
-                 (SAFE/CAUTION/DANGER/SCAM)
-                        │
-                   SQLite Cache
+                    │
+              XGBoost ML Scorer
+           (GoPlusLabs real data)
+                    │
+             honeypot_guard → cap 45
+             confidence_fallback → rule_based
+                    │
+               SQLite Cache
 ```
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-- Python 3.10+
-- Node.js 18+
-- Base RPC endpoint (public: `https://mainnet.base.org`)
-
 ### Backend
 
 ```bash
 cd backend
 pip install -e ".[dev]"
-
-# Run API server
 uvicorn token_sentry.api:app --reload --port 8000
-
-# Run tests
-pytest tests/ -v
-
-# Lint
-ruff check .
+pytest tests/ -v   # 95 tests
 ```
 
 ### Frontend
@@ -92,93 +100,71 @@ ruff check .
 ```bash
 cd frontend
 npm install
-
-# Development
 NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
-
-# Production build
-npm run build
-npm run lint
 ```
 
-### Docker Compose (full stack)
+### Docker Compose
 
 ```bash
 docker compose up
-# Backend: http://localhost:8000
-# Frontend: http://localhost:3000
+```
+
+### Real Data Collection & Retrain
+
+```bash
+python -m token_sentry.ml.collect   # GoPlusLabs + Basescan
+python -m token_sentry.ml.retrain   # XGBoost retrain
 ```
 
 ---
 
 ## API Reference
 
-Base URL: `http://localhost:8000`
-
-### Endpoints
+Base URL: `https://api-token-sentry.warvis.org`
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/health` | Health check |
-| `POST` | `/analyze` | Analyze a token by contract address |
+| `POST` | `/analyze/{address}` | Analyze a token |
 | `GET` | `/tokens` | List analyzed tokens (paginated) |
-| `GET` | `/tokens/{address}` | Cached analysis for a token |
-| `GET` | `/tokens?verdict=DANGER` | Filter by safety verdict |
-| `GET` | `/watch` | Recent newly-deployed tokens |
+| `GET` | `/tokens/{address}` | Full cached analysis |
+| `GET` | `/tokens/{address}/score` | Lightweight score-only |
+| `GET` | `/watch/recent` | Recently detected new tokens |
 
-### Safety Verdicts
+### Safety Score → Grade
 
-| Verdict | Score Range | Description |
-|---------|-------------|-------------|
-| `SAFE` | 80–100 | No dangerous flags detected |
-| `CAUTION` | 50–79 | Minor flags, proceed carefully |
-| `DANGER` | 20–49 | Significant red flags detected |
-| `SCAM` | 0–19 | Honeypot or confirmed scam pattern |
+| Grade | Score | Description |
+|-------|-------|-------------|
+| **A** | 85–100 | No dangerous flags |
+| **B** | 70–84 | Minor flags, generally safe |
+| **C** | 55–69 | Caution advised |
+| **D** | 35–54 | Significant red flags |
+| **F** | 0–34 | Honeypot or confirmed scam |
 
 ### Example Response
 
 ```json
-// POST /analyze  {"address": "0x1234..."}
 {
-  "address": "0x1234...",
-  "name": "SomeToken",
-  "symbol": "SOME",
-  "verdict": "DANGER",
-  "score": 32,
-  "flags": [
-    {"flag": "HONEYPOT", "severity": "CRITICAL", "detail": "Sell simulation failed"},
-    {"flag": "HIGH_OWNER_CONCENTRATION", "severity": "HIGH", "detail": "Dev holds 45% of supply"},
-    {"flag": "MINT_FUNCTION", "severity": "MEDIUM", "detail": "Owner can mint unlimited tokens"}
-  ],
-  "liquidity_usd": 15000,
-  "holder_count": 234,
-  "top_holder_pct": 0.45
+  "address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "score": 85,
+  "grade": "A",
+  "is_honeypot": false,
+  "scoring_method": "ml",
+  "ml_confidence": 0.82,
+  "disclaimer": "Safety scores are informational only, not investment advice."
 }
 ```
 
-### Interactive Docs
-
-Visit `http://localhost:8000/docs` for the auto-generated Swagger UI.
+Interactive docs: `https://api-token-sentry.warvis.org/docs`
 
 ---
 
 ## Tech Stack
 
-**Backend**
-- Python 3.10, FastAPI, Pydantic v2
-- web3.py (Base RPC, bytecode analysis)
-- Honeypot simulation via eth_call
-- SQLite (analysis cache)
-
-**Frontend**
-- Next.js 14, TypeScript, Tailwind CSS
-- TanStack Query
-- Recharts (holder distribution chart, score gauge)
-- Safety badges: SAFE=green, CAUTION=yellow, DANGER=orange, SCAM=red
-
-**Infrastructure**
-- Docker Compose
-- Base RPC: `https://mainnet.base.org`
+**Backend:** Python 3.10, FastAPI, Pydantic v2, XGBoost, scikit-learn, web3.py, SQLite  
+**Frontend:** Next.js 14, TypeScript, Tailwind CSS, TanStack Query, Recharts  
+**Data:** GoPlusLabs API (Base chain 8453), Basescan API, Base RPC  
+**Infra:** Docker, Caddy reverse proxy, self-hosted
 
 ---
 
@@ -191,49 +177,53 @@ grant-base-token-sentry/
 │   │   ├── analyzer.py          # Contract bytecode/ABI analysis
 │   │   ├── honeypot_detector.py # Buy/sell simulation
 │   │   ├── liquidity_checker.py # LP pool analysis
-│   │   ├── holder_analyzer.py   # Token distribution analysis
-│   │   ├── scorer.py            # Safety scoring engine
-│   │   ├── watcher.py           # New token monitor
-│   │   ├── api.py               # FastAPI application
-│   │   └── schemas.py           # Pydantic models
-│   └── tests/                   # pytest test suite
-├── frontend/
-│   ├── app/                     # Next.js App Router pages
-│   ├── components/              # TokenSearch, SafetyScoreGauge, etc.
-│   └── lib/                     # API client, types
-└── docker-compose.yml
+│   │   ├── holder_analyzer.py   # Token distribution
+│   │   ├── scorer.py            # XGBoost + rule-based scorer
+│   │   ├── ml/
+│   │   │   ├── data_collector.py  # GoPlusLabs + Basescan
+│   │   │   ├── data_processor.py  # Feature engineering
+│   │   │   ├── token_lists.py     # 30 safe + 50 popular + 15 scam
+│   │   │   ├── collect.py         # CLI: collect real data
+│   │   │   └── retrain.py         # CLI: retrain model
+│   │   ├── api.py
+│   │   └── schemas.py
+│   └── tests/                   # 95 pytest tests
+└── frontend/
+    └── src/
+        ├── app/
+        ├── components/
+        └── lib/
 ```
 
 ---
 
 ## Use Cases
 
-- **Traders**: Check any token before buying on DEX
-- **Developers**: Verify your own token passes safety checks
-- **Security researchers**: Monitor new token deployments for scams
+- **Traders**: Check any Base token before buying on a DEX
+- **Security researchers**: Monitor new token deployments for scam patterns
 - **DeFi protocols**: Screen tokens before listing or integrating
+- **Developers**: Verify your own token passes safety checks
 
 ---
 
-## Safety & Disclaimers
+## Built for Base Ecosystem Grants
 
-- Token safety analysis is based on heuristic patterns and is not guaranteed to be complete
-- A SAFE verdict does not guarantee a token is risk-free
-- Always do your own research before trading any token
-- Not financial advice
+Base Token Sentry protects Base users from the most common DeFi attack vector — malicious tokens.
+
+**Impact metrics:**
+- 95 automated tests ensuring scorer reliability
+- Honeypot safety guard: score hard-capped at 45 (no false negatives)
+- Live data pipeline: GoPlusLabs integration for continuous model improvement
+- Open API: any wallet, DEX, or bot can integrate safety checks for free
 
 ---
 
-## Built for Base Builder Grants
+## Disclaimer
 
-Base Token Sentry protects Base users from the most common DeFi attack vector — malicious tokens. By making safety analysis fast, free, and accessible, we reduce scam losses and improve user confidence in the Base ecosystem.
+Safety scores are informational only, not investment advice. Always do your own research.
 
 ---
 
 ## License
 
-MIT © 2024 Base Token Sentry Contributors
-
----
-
-*Built with ❤️ on Base*
+MIT © 2025 Base Token Sentry Contributors
